@@ -5671,6 +5671,8 @@ in
   strongswanTNC = strongswan.override { enableTNC = true; };
   strongswanNM  = strongswan.override { enableNetworkManager = true; };
 
+  stylish-haskell = haskell.lib.justStaticExecutables haskellPackages.stylish-haskell;
+
   su = shadow.su;
 
   subsonic = callPackage ../servers/misc/subsonic { };
