@@ -16041,6 +16041,8 @@ in
 
   xits-math = callPackage ../data/fonts/xits-math { };
 
+  xkcd-font = callPackage ../data/fonts/xkcd-font { };
+
   xkeyboard_config = xorg.xkeyboardconfig;
 
   xlsx2csv = pythonPackages.xlsx2csv;
