@@ -1,6 +1,7 @@
 { stdenv, fetchFromGitHub }:
 
 stdenv.mkDerivation rec {
+  name = pname;
   pname = "xkcd-font";
   version = "unstable-2017-08-24";
 
