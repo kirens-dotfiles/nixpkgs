@@ -6,42 +6,149 @@ with lib;
 
 let
 
+  inherit (lib)
+    mkOption
+    types
+    optionalString
+    concatStrings
+    concatMapStringsSep
+    ;
+  inherit (types)
+    submodule
+    listOf
+    strMatching
+    nullOr
+    path
+    int
+    bool
+    ;
+
+  yesNo = opt: if opt then "yes" else "no";
+
+  range = submodule {
+    options.min.type = int;
+    options.max.type = int;
+  };
+
+  cfg = config.users;
+  idRanges = cfg.idRanges;
+  login = cfg.login;
+
   loginDefs =
     ''
-      DEFAULT_HOME yes
+      DEFAULT_HOME ${yesNo (!login.requreHome)}
+      SYS_UID_MAX  ${toString idRanges.suid.max}
+      UID_MIN      ${toString idRanges.uid.min}
+      UID_MAX      ${toString idRanges.uid.max}
 
-      SYS_UID_MIN  400
-      SYS_UID_MAX  499
-      UID_MIN      1000
-      UID_MAX      29999
+      SYS_GID_MIN  ${toString idRanges.sgid.min}
+      SYS_GID_MAX  ${toString idRanges.sgid.max}
+      GID_MIN      ${toString idRanges.gid.min}
+      GID_MAX      ${toString idRanges.gid.max}
 
-      SYS_GID_MIN  400
-      SYS_GID_MAX  499
-      GID_MIN      1000
-      GID_MAX      29999
-
+      # Should not be configurable as nixos will setgid tty writer
       TTYGROUP     tty
       TTYPERM      0620
 
       # Ensure privacy for newly created home directories.
-      UMASK        077
+      UMASK        ${login.homeDirMode}
 
-      # Uncomment this and install chfn SUID to allow non-root
-      # users to change their account GECOS information.
-      # This should be made configurable.
-      #CHFN_RESTRICT frwh
+      CHFN_RESTRICT ${with cfg.configurableValues; concatStrings [
+        (optionalString name "f")
+        (optionalString room "r")
+        (optionalString workPhone "w")
+        (optionalString homePhone "h")
+      ]}
 
+      ${optionalString (! isNull login.path) ''
+       ENV_PATH PATH=${concatMapStringsSep ":" toString login.path}
+      ''}
+      ${optionalString (! isNull login.supath) ''
+       ENV_SUPATH PATH=${concatMapStringsSep ":" toString login.supath}
+      ''}
     '';
 
-in
+    rangeOption = prgms: kind: default: mkOption {
+      inherit default;
+      type = types.attrs;
+      description = ''
+        Range of IDs used for the creation of ${kind} by ${prgms}
+      '';
+    };
+    userRange = kind: rangeOption "useradd or newusers" "${kind} user";
+    groupRange = kind:
+      rangeOption "useradd, groupadd, or newusers" "${kind} group";
 
+    generic = {
+      falseBool = description:
+        mkOption { inherit description; type = bool; default = false; };
+    };
+
+    pathOption = userKind: mkOption {
+      type = nullOr (listOf path);
+      default = null;
+      example = [
+        /nix/var/nix/profiles/default/bin
+        /run/current-system/sw/bin
+      ];
+      description = ''
+        If set, it will be used to define the PATH environment variable when a
+        ${userKind} login.
+      '';
+    };
+in
 {
 
   ###### interface
 
-  options = {
+  options.users = {
+    idRanges = {
+      uid = userRange  "regular" { min = 1000; max = 29999; };
+      gid = groupRange "regular" { min = 1000; max = 29999; };
+      suid = userRange  "system" { min = 400; max = 499; };
+      sgid = groupRange "system" { min = 400; max = 499; };
+    };
+    login.requreHome = mkOption {
+      type = bool;
+      default = false;
+      description = ''
+        Indicate if login is allowed if we can't cd to the home directory. If
+        so, the user will login in the root (/) directory if it is not possible
+        to cd to her home directory.
+      '';
+    };
+    login.homeDirMode = mkOption {
+      type = strMatching "[0-7]{3}";
+      default = "077";
+      description = ''
+        The file mode creation mask is initialized to this value.
 
-    users.defaultUserShell = lib.mkOption {
+        useradd and newusers use this mask to set the mode of the home
+        directory they create. It is also used by pam_umask as the default
+        umask value.
+      '';
+    };
+    login.path = pathOption "regular user";
+    login.supath = pathOption "superuser";
+    configurableValues = mkOption {
+      type = with generic; submodule {
+        options.name = falseBool "Full Name";
+        options.room = falseBool "Room number";
+        options.workPhone = falseBool "Work phone";
+        options.homePhone = falseBool "Home phone";
+      };
+      default = {};
+      example = { room = true; homePhone = true; };
+      description = ''
+        This parameter specifies which values in the gecos field of the
+        /etc/passwd file may be changed by regular users using the chfn
+        program.
+
+        If not specified, only the superuser can make any changes. The most
+        restrictive setting is better achieved by not installing chfn SUID.
+      '';
+    };
+    defaultUserShell = lib.mkOption {
       description = ''
         This option defines the default shell assigned to user
         accounts. This can be either a full system path or a shell package.
