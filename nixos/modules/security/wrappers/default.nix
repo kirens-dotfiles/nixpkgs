@@ -165,13 +165,6 @@ in
       options = [ "nodev" ];
     };
 
-    # Make sure our wrapperDir exports to the PATH env variable when
-    # initializing the shell
-    environment.extraInit = ''
-      # Wrappers override other bin directories.
-      export PATH="${wrapperDir}:$PATH"
-    '';
-
     ###### setcap activation script
     system.activationScripts.wrappers =
       lib.stringAfter [ "specialfs" "users" ]
