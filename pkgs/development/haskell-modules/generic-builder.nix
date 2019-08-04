@@ -81,10 +81,6 @@ in
   # built. Will delay failures, if any, to compile time.
   allowInconsistentDependencies ? false
 , maxBuildCores ? 4 # GHC usually suffers beyond -j4. https://ghc.haskell.org/trac/ghc/ticket/9221
-, # If set to true, this builds a pre-linked .o file for this Haskell library.
-  # This can make it slightly faster to load this library into GHCi, but takes
-  # extra disk space and compile time.
-  enableLibraryForGhci ? false
 } @ args:
 
 assert editedCabalFile != null -> revision != null;
@@ -96,7 +92,7 @@ assert stdenv.hostPlatform.isWindows -> enableStaticLibraries == false;
 let
 
   inherit (stdenv.lib) optional optionals optionalString versionOlder versionAtLeast
-                       concatStringsSep enableFeature optionalAttrs;
+                       concatStringsSep enableFeature optionalAttrs toUpper;
 
   isGhcjs = ghc.isGhcjs or false;
   isHaLVM = ghc.isHaLVM or false;
@@ -118,7 +114,7 @@ let
 
   binDir = if enableSeparateBinOutput then "$bin/bin" else "$out/bin";
 
-  newCabalFileUrl = "mirror://hackage/${pname}-${version}/revision/${revision}.cabal";
+  newCabalFileUrl = "http://hackage.haskell.org/package/${pname}-${version}/revision/${revision}.cabal";
   newCabalFile = fetchurl {
     url = newCabalFileUrl;
     sha256 = editedCabalFile;
@@ -173,7 +169,7 @@ let
     (optionalString (isGhcjs || versionOlder "7" ghc.version) (enableFeature doCheck "tests"))
     (enableFeature doBenchmark "benchmarks")
     "--enable-library-vanilla"  # TODO: Should this be configurable?
-    (enableFeature enableLibraryForGhci "library-for-ghci")
+    "--enable-library-for-ghci" # TODO: Should this be configurable?
   ] ++ optionals (enableDeadCodeElimination && (stdenv.lib.versionOlder "8.0.1" ghc.version)) [
      "--ghc-option=-split-sections"
   ] ++ optionals dontStrip [
