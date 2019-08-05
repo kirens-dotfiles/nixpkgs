@@ -130,6 +130,7 @@
 , "triton"
 , "tsun"
 , "ttf2eot"
+, "typedoc"
 , "typescript"
 , "typescript-language-server"
 , "uglify-js"
