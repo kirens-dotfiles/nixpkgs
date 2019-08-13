@@ -38,7 +38,7 @@ rec {
   #
   #     lib.cleanSourceWith f (lib.cleanSourceWith g ./.)     # Succeeds!
   #     builtins.filterSource f (builtins.filterSource g ./.) # Fails!
-  cleanSourceWith = { filter, src }:
+  cleanSourceWith = { filter, src, ... }@pathArgs:
     let
       isFiltered = src ? _isLibCleanSourceWith;
       origSrc = if isFiltered then src.origSrc else src;
@@ -46,7 +46,10 @@ rec {
     in {
       inherit origSrc;
       filter = filter';
-      outPath = builtins.filterSource filter' origSrc;
+      outPath = builtins.path (builtins.removeAttrs pathArgs ["src"] // {
+        path = origSrc;
+        filter = filter';
+      });
       _isLibCleanSourceWith = true;
     };
 
