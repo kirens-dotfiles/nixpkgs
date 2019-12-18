@@ -1,0 +1,71 @@
+diff --git a/pkgs/development/tools/yarn2nix/bin/yarn2nix.js b/pkgs/development/tools/yarn2nix/bin/yarn2nix.js
+index 3eadea55903..88a56c656fc 100755
+--- a/pkgs/development/tools/yarn2nix/bin/yarn2nix.js
++++ b/pkgs/development/tools/yarn2nix/bin/yarn2nix.js
+@@ -4,6 +4,7 @@
+ const crypto = require('crypto');
+ const fs = require("fs");
+ const https = require("https");
++const url = require("url");
+ const path = require("path");
+ const util = require("util");
+ 
+@@ -25,6 +26,9 @@ Options:
+ const HEAD = `
+ {fetchurl, linkFarm}: rec {
+   offline_cache = linkFarm "offline" packages;
++  fetchPackGit = { url, name, sha1 }: runCommand name {} ''
++    tar -cf "$out" \${fetchGit { inherit url; rev = sha1; }}
++  '';
+   packages = [
+ `.trim();
+ 
+@@ -38,26 +42,38 @@ function generateNix(lockedDependencies) {
+   for (var depRange in lockedDependencies) {
+     let dep = lockedDependencies[depRange];
+ 
+-    let depRangeParts = depRange.split('@');
+-    let [url, sha1] = dep["resolved"].split("#");
+-    let file_name = path.basename(url)
+-
+-    if (found.hasOwnProperty(file_name)) {
+-      continue;
+-    } else {
+-      found[file_name] = null;
++    let [ namespace ] = depRange.match(/^\@.+?(?=\/)/) || [];
++    let { protocol, path, hash, href } = url.parse(dep["resolved"]);
++    let url = href.replace(hash, '');
++    let sha1 = hash.slice(1);
++    let file_name = (namespace && `${namespace}-`) + path.basename(path);
++    let fetcher = "fetchurl";
++
++    switch (protocol) {
++      case "git:":
++        file_name += `-${sha1}`;
++        fetcher = "fetchPackGit";
++        break;
++      case "https:":
++        // NOP
++        break;
++      default:
++        throw new Error(`I don't know how to handle "${href}"`);
+     }
+ 
++    if (found.hasOwnProperty(file_name)) continue;
++    else found[file_name] = true;
+ 
+     console.log(`
+     {
+       name = "${file_name}";
+-      path = fetchurl {
++      path = ${fetcher} {
+         name = "${file_name}";
+         url  = "${url}";
+         sha1 = "${sha1}";
+       };
+-    }`)
++    }`
++    )
+   }
+ 
+   console.log("  ];")

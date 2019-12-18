@@ -1,4 +1,5 @@
-{ stdenv, lib, fetchurl, linkFarm, runCommand, nodejs, yarn }:
+{ stdenv, lib, callPackage, fetchurl, linkFarm, runCommand, nodejs, yarn
+, nix-prefetch-git, makeWrapper, git }:
 
 let
   unlessNull = item: alt:
@@ -7,6 +8,11 @@ let
   yarn2nix = mkYarnPackage {
     src = ./.;
     yarnNix = ./yarn.nix;
+
+    nativeBuildInputs = [ makeWrapper ];
+    postInstall = ''
+      wrapProgram "$out/bin/yarn2nix" --prefix PATH : '${nix-prefetch-git}/bin'
+    '';
 
     passthru = {
       inherit
@@ -37,7 +43,7 @@ let
   # the package source.
   importOfflineCache = yarnNix:
     let
-      pkg = import yarnNix { inherit fetchurl linkFarm; };
+      pkg = callPackage yarnNix { };
     in
       pkg.offline_cache;
 
@@ -76,7 +82,7 @@ let
     stdenv.mkDerivation {
       inherit name preBuild;
       phases = ["configurePhase" "buildPhase"];
-      buildInputs = [ yarn nodejs ] ++ extraBuildInputs;
+      buildInputs = [ yarn nodejs git ] ++ extraBuildInputs;
 
       configurePhase = ''
         # Yarn writes cache directories etc to $HOME.
@@ -91,10 +97,10 @@ let
         chmod +w ./yarn.lock
 
         yarn config --offline set yarn-offline-mirror ${offlineCache}
+        echo ==========================================================
+        echo ${offlineCache}
+        echo ==========================================================
 
-        # Do not look up in the registry, but in the offline cache.
-        # TODO: Ask upstream to fix this mess.
-        sed -i -E 's|^(\s*resolved\s*")https?://.*/|\1|' yarn.lock
         yarn install ${lib.escapeShellArgs yarnFlags}
 
         ${lib.concatStringsSep "\n" postInstall}

@@ -4,11 +4,15 @@
 const crypto = require('crypto');
 const fs = require("fs");
 const https = require("https");
+const url = require("url");
 const path = require("path");
 const util = require("util");
+const spawnSync = require('child_process').spawnSync;
 
 const lockfile = require("@yarnpkg/lockfile")
 const docopt = require("docopt").docopt;
+
+const output = console.error
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -19,49 +23,93 @@ Options:
   -h --help        Shows this help.
   --no-nix         Hide the nix output
   --no-patch       Don't patch the lockfile if hashes are missing
+  --keep-going     Generate nix file even though some hashes weren't specified
   --lockfile=FILE  Specify path to the lockfile [default: ./yarn.lock].
 `
 
-const HEAD = `
-{fetchurl, linkFarm}: rec {
+const writeNix = definitions =>
+`{ fetchurl, fetchgit, linkFarm, runCommand }: rec {
   offline_cache = linkFarm "offline" packages;
-  packages = [
-`.trim();
+  fetchPackGit = { url, name ? "gittar", rev, sha256 }: runCommand name {} ''
+    tar --exclude-vcs -cf "$out" \${fetchgit { inherit url rev sha256; }}
+  '';
+  packages = [` + definitions.map(({fetcher, name, args}) => `
+    {
+      name = "${name}";
+      path = ${fetcher} {` + Object.entries(args).map(([key, val]) => `
+        ${key} = "${val}";`).join('') + `
+      };
+    }`).join('') + `
+  ];
+}
+`
 
 ////////////////////////////////////////////////////////////////////////////////
 
-function generateNix(lockedDependencies) {
-  let found = {};
+function specifyDependencies(lockedDependencies) {
+  const alreadyResolved = new Set();
+  const dependencies = [];
 
-  console.log(HEAD)
+  for (const depRange in lockedDependencies) {
+    const dep = lockedDependencies[depRange];
 
-  for (var depRange in lockedDependencies) {
-    let dep = lockedDependencies[depRange];
+    if(alreadyResolved.has(dep.resolved)) continue;
+    alreadyResolved.add(dep.resolved);
 
-    let depRangeParts = depRange.split('@');
-    let [url, sha1] = dep["resolved"].split("#");
-    let file_name = path.basename(url)
+    const parsed = url.parse(dep.resolved);
 
-    if (found.hasOwnProperty(file_name)) {
-      continue;
-    } else {
-      found[file_name] = null;
+    const href = parsed.href.replace(parsed.hash, '');
+    const hash = parsed.hash.slice(1);
+
+    const [ namespace ] = depRange.match(/^\@.+?(?=\/)/) || [];
+    const name = (namespace ? `${namespace}-` : '') + path.basename(parsed.path);
+
+
+    switch (parsed.protocol) {
+      case "git:":
+        // TODO: solve this recursive crayzeness
+        output('Should run `yarn run prepare` but we will not...')
+        const rev = hash;
+        const url = href.replace('git:', 'https:');
+
+        output(`Generating hash for ${url}...`);
+        const prefetch = spawnSync(
+          'nix-prefetch-git',
+          ['--quiet', '--url', url, '--rev', rev],
+          {},
+        );
+        if (prefetch.status != 0) throw new Error(
+          'Failed running nix-prefetch-git:\n' + prefetch.stderr
+        );
+        const { sha256 } = JSON.parse(prefetch.stdout);
+        output('Hash generated');
+
+        dependencies.push({
+          fetcher: "fetchPackGit",
+          name: `${name}-${hash}`,
+          args: { url, rev, sha256 },
+        });
+        break;
+
+      case "https:":
+        dependencies.push({
+          fetcher: "fetchurl",
+          name,
+          args: { url: href, sha1: hash },
+        });
+        break;
+
+      default:
+        throw new Error(`I don't know how to handle "${url}"`);
     }
-
-
-    console.log(`
-    {
-      name = "${file_name}";
-      path = fetchurl {
-        name = "${file_name}";
-        url  = "${url}";
-        sha1 = "${sha1}";
-      };
-    }`)
   }
 
-  console.log("  ];")
-  console.log("}")
+  return dependencies;
+};
+
+
+async function generateNix(lockedDependencies) {
+  console.log(writeNix(await specifyDependencies(lockedDependencies)))
 }
 
 
@@ -91,8 +139,10 @@ function updateResolvedSha1(pkg) {
   let [url, sha1] = pkg.resolved.split("#", 2)
   if (!sha1) {
     return new Promise((resolve, reject) => {
+      output(`Fetching hash for ${url}...`);
       getSha1(url).then(sha1 => {
         pkg.resolved = `${url}#${sha1}`;
+        output(`Done fetching hash for ${url}!`);
         resolve();
       }).catch(reject);
     });
@@ -116,8 +166,8 @@ function values(obj) {
 
 var options = docopt(USAGE);
 
-let data = fs.readFileSync(options['--lockfile'], 'utf8')
-let json = lockfile.parse(data)
+const json = lockfile.parse(fs.readFileSync(options['--lockfile'], 'utf8'))
+const origGenerated = lockfile.stringify(json.object)
 if (json.type != "success") {
   throw new Error("yarn.lock parse error")
 }
@@ -127,15 +177,15 @@ var pkgs = values(json.object);
 Promise.all(pkgs.map(updateResolvedSha1)).then(() => {
   let newData = lockfile.stringify(json.object);
 
-  if (newData != data) {
+  if (origGenerated != newData) {
     console.error("found changes in the lockfile", options["--lockfile"]);
 
-    if (options["--no-patch"]) {
+    if (!options["--no-patch"]) {
+      fs.writeFileSync(options['--lockfile'], newData);
+    } else if (!options["--keep-going"]) {
       console.error("...aborting");
       process.exit(1);
     }
-
-    fs.writeFileSync(options['--lockfile'], newData);
   }
 
   if (!options['--no-nix']) {
