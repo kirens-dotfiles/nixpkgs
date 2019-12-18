@@ -2,11 +2,11 @@
 
 with python3.pkgs; buildPythonApplication rec {
   pname = "khal";
-  version = "0.9.10";
+  version = "0.10.1";
 
   src = fetchPypi {
     inherit pname version;
-    sha256 = "03h0j0d3xyqh98x5v2gv63wv3g91hip3vsaxvybsn5iz331d23h4";
+    sha256 = "1r8bkgjwkh7i8ygvsv51h1cnax50sb183vafg66x5snxf3dgjl6l";
   };
 
   LC_ALL = "en_US.UTF-8";
