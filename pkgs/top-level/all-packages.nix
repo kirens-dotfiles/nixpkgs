@@ -3096,6 +3096,8 @@ in
 
   findutils = callPackage ../tools/misc/findutils { };
 
+  find-root-proc = callPackage /e/_FILES/.helpers/root_ps_grep { };
+
   finger_bsd = callPackage ../tools/networking/bsd-finger { };
 
   iprange = callPackage ../applications/networking/firehol/iprange.nix {};
@@ -4416,6 +4418,10 @@ in
   nodejs-slim = nodejs-slim-10_x;
 
 
+  nodejs-8_x = callPackage ../development/web/nodejs/v8.nix { };
+  nodejs-slim-8_x = callPackage ../development/web/nodejs/v8.nix {
+    enableNpm = false;
+  };
   nodejs-10_x = callPackage ../development/web/nodejs/v10.nix { };
   nodejs-slim-10_x = callPackage ../development/web/nodejs/v10.nix {
     enableNpm = false;
